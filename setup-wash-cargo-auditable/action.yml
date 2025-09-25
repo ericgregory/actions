@@ -6,21 +6,22 @@ description: |
   wash CLI must be installed and available in PATH. We recommend using the
   wasmcloud/setup-wash-action prior to this action to install wash.
 
-outputs:
-  component_path:
-    description: "Path to the built WebAssembly component"
-    value: ${{ steps.build.outputs.component_path }}
+inputs:
+  working-directory:
+    description: "Directory containing the WebAssembly project"
+    required: false
+    default: "."
 
 runs:
   using: "composite"
   steps:
     - uses: taiki-e/install-action@4575ae687efd0e2c78240087f26013fb2484987f # v2.62.6
-      if: ${{ inputs.attestation == 'true' }}
       with:
         tool: cargo-auditable,cargo-audit
 
     - name: Set auditable as custom build command in .wash/config.json
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         mkdir -p .wash
 
@@ -30,7 +31,9 @@ runs:
           jq '(.build // {}) as $build | 
               (.build.rust // {}) as $rust |
               .build = ($build | .rust = ($rust | 
-                .custom_command = "cargo auditable build --release --target wasm32-wasip2" |
+                .custom_command = ["cargo", "auditable", "build", "--release", "--target", "wasm32-wasip2", "--message-format", "json"] |
+                .target = "wasm32-wasip2" |
+                .release = true
               ))' .wash/config.json > .wash/config.json.tmp
           mv .wash/config.json.tmp .wash/config.json
         else
@@ -38,7 +41,9 @@ runs:
           jq -n '{
             "build": {
               "rust": {
-                "custom_command": "cargo auditable build --release --target wasm32-wasip2"
+                "target": "wasm32-wasip2",
+                "release": true,
+                "custom_command": ["cargo", "auditable", "build", "--release", "--target", "wasm32-wasip2", "--message-format", "json"]
               }
             }
           }' > .wash/config.json
