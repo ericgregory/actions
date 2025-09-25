@@ -17,6 +17,8 @@ Add the following step to your GitHub workflow:
 - name: Build component
   id: build
   uses: wasmcloud/actions/wash-build@main
+  with:
+    working-directory: ./my-component  # optional, defaults to '.'
 
 - name: Use the built component
   run: echo "Component built at: ${{ steps.build.outputs.artifact_path }}"
@@ -26,6 +28,10 @@ Add the following step to your GitHub workflow:
 
 You must have the `wash` CLI and `jq` installed and available in your PATH. We recommend using the
 [wasmcloud/setup-wash-action](../setup-wash-action) prior to this action to install wash.
+
+## Inputs
+
+- `working-directory`: Directory containing the wasmCloud project (optional, defaults to `.`)
 
 ## Outputs
 

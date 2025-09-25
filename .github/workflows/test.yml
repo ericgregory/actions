@@ -30,20 +30,33 @@ jobs:
       - name: Setup wash CLI
         uses: ./setup-wash-action
         with:
-          wash-version: wash-v1.0.0-beta.7
+          wash-version: wash-v1.0.0-beta.8
+
+      # create a test working directory
+      - name: Create test directory
+        run: |
+          mkdir test-dir
+          cd test-dir
 
       - name: Setup cargo-auditable
         uses: ./setup-wash-cargo-auditable
+        with:
+          working-directory: test-dir
 
       - name: Create test Rust project
+        working-directory: test-dir
         run: |
           cargo init --name test-component
 
       - name: Test wash-build action
         id: build
         uses: ./wash-build
+        with:
+          working-directory: test-dir
 
       - name: Verify build output
+        shell: bash
+        working-directory: test-dir
         run: |
           echo "Built component at: ${STEPS_BUILD_OUTPUTS_COMPONENT_PATH}"
           if [ ! -f "${STEPS_BUILD_OUTPUTS_COMPONENT_PATH}" ]; then
@@ -55,10 +68,11 @@ jobs:
 
       - name: Verify wash config updated with cargo-auditable
         shell: bash
+        working-directory: test-dir
         run: |
-          cat .wash/config.json | jq .
-          if ! jq -e '.build.rust.custom_command == "cargo auditable build --release --target wasm32-wasip2"' .wash/config.json; then
-            echo "Error: .wash/config.json not updated correctly"
+          jq . .wash/config.json
+          if ! jq -e '.build.rust.custom_command | arrays | contains(["auditable"])' .wash/config.json; then
+            echo "Error: .wash/config.json does not contain 'auditable' in custom_command"
             exit 1
           fi
 

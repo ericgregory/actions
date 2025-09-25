@@ -5,6 +5,12 @@ description: |
   wash CLI must be installed and available in PATH. We recommend using the
   wasmcloud/setup-wash-action prior to this action to install wash.
 
+inputs:
+  working-directory:
+    description: "Directory containing the WebAssembly project"
+    required: false
+    default: "."
+
 outputs:
   component_path:
     description: "Path to the built WebAssembly component"
@@ -16,21 +22,46 @@ runs:
     - name: Compile Wasm binary and capture component path
       id: build
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
-        set -e
+        set +e  # Disable exit on error so we can capture wash output
 
-        # TODO artifact_path field is being renamed to component_path in future wash releases
-        # For now, capture artifact_path and set as component_path output
-        # https://github.com/wasmCloud/wash/pull/79
-        artifact_path=$(wash build --output json | jq -r .data.artifact_path)
-        if [ -z "$artifact_path" ] || [ "$artifact_path" = "null" ]; then
-          echo "Failed to determine built component path" >&2
+        echo "Running wash build..."
+        echo "Current directory: $(pwd)"
+        echo "Available files:"
+        ls -la
+
+        # Run wash build with stream separation - JSON to stdout, logs to stderr
+        echo "Executing: wash build --output json"
+        if wash build --output json > result.json 2> build.log; then
+          echo "Wash build successful"
+          
+          # Show the build logs for transparency
+          echo "Build logs:"
+          cat build.log
+          
+          # Parse the JSON output
+          artifact_path=$(jq -r .data.artifact_path result.json)
+          if [ -z "$artifact_path" ] || [ "$artifact_path" = "null" ]; then
+            echo "::error::Failed to extract component path from wash JSON output:"
+            cat result.json
+            exit 1
+          fi
+
+          echo "Successfully extracted component path: $artifact_path"
+          echo "component_path=$artifact_path" >> $GITHUB_OUTPUT
+        else
+          echo "::error::wash build failed:"
+          echo "Build logs:"
+          cat build.log 2>/dev/null || echo "No build logs available"
+          echo "JSON output:"
+          cat result.json 2>/dev/null || echo "No JSON output available"
           exit 1
         fi
-        echo "component_path=$artifact_path" >> $GITHUB_OUTPUT
 
     - name: Verify Wasm binary exists
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       run: |
         if [ ! -f "${{ steps.build.outputs.component_path }}" ]; then
           echo "Error: ${{ steps.build.outputs.component_path }} not found!" >&2

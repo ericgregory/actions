@@ -17,6 +17,17 @@ Add the following step to your GitHub workflow before any wash build steps:
 ```yaml
 - name: Setup wash cargo-auditable
   uses: wasmcloud/actions/setup-wash-cargo-auditable@main
+
+# multiple components can be built in the same workflow
+- name: Build frontend component
+  uses: wasmcloud/actions/wash-build@main
+  with:
+    working-directory: ./frontend
+
+- name: Build backend component
+  uses: wasmcloud/actions/wash-build@main
+  with:
+    working-directory: ./backend
 ```
 
 Do this before running `wash build` as this action sets up a custom build command in `.wash/config.json`.

@@ -24,27 +24,31 @@ inputs:
     description: "Additional tags to apply to the published image, comma-separated"
     required: false
     default: ${{ github.ref_name }}
+  token:
+    description: "GitHub token for authentication"
+    required: false
+    default: ${{ github.token }}
+  cyclonedx-version:
+    description: "Version of CycloneDX CLI to use"
+    required: false
+    default: "0.29.1"
 
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-    - name: Setup wash CLI
-      uses: wasmcloud/setup-wash-action@main
-      with:
-        wash-version: 1.0.0-beta.7
-
     - name: Login to container registry
       uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
       with:
         registry: ${{ inputs.registry }}
         username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        password: ${{ inputs.token }}
 
     - name: Set IMAGE_NAME env as lower-case repository name
       shell: bash
-      run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+      run: |
+        echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+        # Create a sanitized filename for SBOM (replace / with -)
+        echo "SBOM_FILENAME=$(echo "${GITHUB_REPOSITORY,,}" | tr '/' '-').spdx.json" >> $GITHUB_ENV
 
     - name: Push Wasm component to container registry
       id: push
@@ -88,14 +92,85 @@ runs:
       with:
         tool: auditable2cdx
 
-    - name: Extract the SBOM from the component
+    - name: Install CycloneDX CLI
       if: ${{ inputs.attestation == 'true' }}
       shell: bash
-      run: auditable2cdx ${{ inputs.component_path }} >> ${{ env.IMAGE_NAME }}.spdx.json
+      run: |
+        # Detect OS and architecture for cyclonedx-cli binary
+        case "$(uname -s)" in
+          Linux*)
+            case "$(uname -m)" in
+              x86_64) BINARY_NAME="cyclonedx-linux-x64" ;;
+              aarch64|arm64) BINARY_NAME="cyclonedx-linux-arm64" ;;
+              armv7l|armv6l) BINARY_NAME="cyclonedx-linux-arm" ;;
+              *) echo "Unsupported Linux architecture: $(uname -m)"; exit 1 ;;
+            esac
+            ;;
+          Darwin*)
+            case "$(uname -m)" in
+              x86_64) BINARY_NAME="cyclonedx-osx-x64" ;;
+              arm64) BINARY_NAME="cyclonedx-osx-arm64" ;;
+              *) echo "Unsupported macOS architecture: $(uname -m)"; exit 1 ;;
+            esac
+            ;;
+          CYGWIN*|MINGW*|MSYS*)
+            case "$(uname -m)" in
+              x86_64) BINARY_NAME="cyclonedx-win-x64.exe" ;;
+              aarch64|arm64) BINARY_NAME="cyclonedx-win-arm64.exe" ;;
+              i686) BINARY_NAME="cyclonedx-win-x86.exe" ;;
+              *) echo "Unsupported Windows architecture: $(uname -m)"; exit 1 ;;
+            esac
+            ;;
+          *) echo "Unsupported OS: $(uname -s)"; exit 1 ;;
+        esac
+
+        # Pin to known good version 0.29.1
+        echo "Downloading cyclonedx-cli binary: $BINARY_NAME"
+        curl -LO "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v${{ inputs.cyclonedx-version }}/$BINARY_NAME"
+        chmod +x "$BINARY_NAME"
+
+        # Create a directory for the binary and add to PATH
+        mkdir -p "$HOME/.local/bin"
+        mv "$BINARY_NAME" "$HOME/.local/bin/cyclonedx"
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Extract SBOM from component
+      if: ${{ inputs.attestation == 'true' }}
+      shell: bash
+      run: |
+        # Create absolute path for CycloneDX SBOM file
+        CYCLONEDX_PATH="$(pwd)/$(echo "${GITHUB_REPOSITORY,,}" | tr '/' '-').cyclonedx.json"
+
+        # Extract CycloneDX SBOM
+        auditable2cdx ${{ inputs.component_path }} > "$CYCLONEDX_PATH"
+        echo "CycloneDX SBOM created at: $CYCLONEDX_PATH"
+
+        # Store path for next step
+        echo "CYCLONEDX_ABS_PATH=$CYCLONEDX_PATH" >> $GITHUB_ENV
+
+    - name: Convert SBOM to SPDX
+      if: ${{ inputs.attestation == 'true' }}
+      shell: bash
+      run: |
+        # Create absolute path for SPDX SBOM file
+        SBOM_PATH="$(pwd)/${{ env.SBOM_FILENAME }}"
+
+        # Convert CycloneDX to SPDX format for GitHub attestation
+        cyclonedx convert --input-file "${{ env.CYCLONEDX_ABS_PATH }}" --output-file "$SBOM_PATH" --output-format spdxjson
+
+        echo "SBOM_ABS_PATH=$SBOM_PATH" >> $GITHUB_ENV
+
+        # Debug: Print SBOM file info and contents
+        echo "SPDX SBOM file created at: $SBOM_PATH"
+        echo "SPDX SBOM file size: $(wc -c < "$SBOM_PATH") bytes"
+        echo "SPDX SBOM file first 20 lines:"
+        head -20 "$SBOM_PATH"
+        echo "SPDX SBOM file format detection:"
+        file "$SBOM_PATH"
 
     - uses: actions/attest-sbom@v3
       if: ${{ inputs.attestation == 'true' }}
       with:
         subject-name: ${{ inputs.registry }}/${{ env.IMAGE_NAME }}
         subject-digest: ${{ steps.push.outputs.digest }}
-        sbom-path: ${{ env.IMAGE_NAME }}.spdx.json
+        sbom-path: ${{ env.SBOM_ABS_PATH }}
