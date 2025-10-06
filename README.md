@@ -56,7 +56,7 @@ jobs:
       - name: Publish component
         uses: wasmcloud/wash-oci-publish@main
         with:
-          component_path: ${{ steps.build.outputs.artifact_path }}
+          component_path: ${{ steps.build.outputs.component_path }}
           registry: ghcr.io
           attestation: "true"
           image_tags: latest,v1.0.0,${{ github.sha }}

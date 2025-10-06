@@ -21,7 +21,7 @@ Add the following step to your GitHub workflow:
     working-directory: ./my-component  # optional, defaults to '.'
 
 - name: Use the built component
-  run: echo "Component built at: ${{ steps.build.outputs.artifact_path }}"
+  run: echo "Component built at: ${{ steps.build.outputs.component_path }}"
 ```
 
 ## Prerequisites
