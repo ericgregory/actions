@@ -41,15 +41,15 @@ runs:
           cat build.log
           
           # Parse the JSON output
-          artifact_path=$(jq -r .data.artifact_path result.json)
-          if [ -z "$artifact_path" ] || [ "$artifact_path" = "null" ]; then
+          component_path=$(jq -r .data.component_path result.json)
+          if [ -z "$component_path" ] || [ "$component_path" = "null" ]; then
             echo "::error::Failed to extract component path from wash JSON output:"
             cat result.json
             exit 1
           fi
 
-          echo "Successfully extracted component path: $artifact_path"
-          echo "component_path=$artifact_path" >> $GITHUB_OUTPUT
+          echo "Successfully extracted component path: $component_path"
+          echo "component_path=$component_path" >> $GITHUB_OUTPUT
         else
           echo "::error::wash build failed:"
           echo "Build logs:"
